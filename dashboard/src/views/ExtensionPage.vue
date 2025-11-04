@@ -4,12 +4,13 @@ import AstrBotConfig from '@/components/shared/AstrBotConfig.vue';
 import ConsoleDisplayer from '@/components/shared/ConsoleDisplayer.vue';
 import ReadmeDialog from '@/components/shared/ReadmeDialog.vue';
 import ProxySelector from '@/components/shared/ProxySelector.vue';
+import UninstallConfirmDialog from '@/components/shared/UninstallConfirmDialog.vue';
 import axios from 'axios';
 import { pinyin } from 'pinyin-pro';
 import { useCommonStore } from '@/stores/common';
 import { useI18n, useModuleI18n } from '@/i18n/composables';
 
-import { ref, computed, onMounted, reactive } from 'vue';
+import { ref, computed, onMounted, reactive, inject } from 'vue';
 
 
 const commonStore = useCommonStore();
@@ -55,6 +56,10 @@ const loading_ = ref(false);
 // 危险插件确认对话框
 const dangerConfirmDialog = ref(false);
 const selectedDangerPlugin = ref(null);
+
+// 卸载插件确认对话框（列表模式用）
+const showUninstallDialog = ref(false);
+const pluginToUninstall = ref(null);
 
 // 插件市场相关
 const extension_url = ref("");
@@ -213,10 +218,35 @@ const checkUpdate = () => {
   });
 };
 
-const uninstallExtension = async (extension_name) => {
+const uninstallExtension = async (extension_name, optionsOrSkipConfirm = false) => {
+  let deleteConfig = false;
+  let deleteData = false;
+  let skipConfirm = false;
+
+  // 处理参数：可能是布尔值（旧的 skipConfirm）或对象（新的选项）
+  if (typeof optionsOrSkipConfirm === 'boolean') {
+    skipConfirm = optionsOrSkipConfirm;
+  } else if (typeof optionsOrSkipConfirm === 'object' && optionsOrSkipConfirm !== null) {
+    deleteConfig = optionsOrSkipConfirm.deleteConfig || false;
+    deleteData = optionsOrSkipConfirm.deleteData || false;
+    skipConfirm = true; // 如果传递了选项对象，说明已经确认过了
+  }
+
+  // 如果没有跳过确认且没有传递选项对象，显示自定义卸载对话框
+  if (!skipConfirm) {
+    pluginToUninstall.value = extension_name;
+    showUninstallDialog.value = true;
+    return; // 等待对话框回调
+  }
+
+  // 执行卸载
   toast(tm('messages.uninstalling') + " " + extension_name, "primary");
   try {
-    const res = await axios.post('/api/plugin/uninstall', { name: extension_name });
+    const res = await axios.post('/api/plugin/uninstall', {
+      name: extension_name,
+      delete_config: deleteConfig,
+      delete_data: deleteData,
+    });
     if (res.data.status === "error") {
       toast(res.data.message, "error");
       return;
@@ -226,6 +256,14 @@ const uninstallExtension = async (extension_name) => {
     getExtensions();
   } catch (err) {
     toast(err, "error");
+  }
+};
+
+// 处理卸载确认对话框的确认事件
+const handleUninstallConfirm = (options) => {
+  if (pluginToUninstall.value) {
+    uninstallExtension(pluginToUninstall.value, options);
+    pluginToUninstall.value = null;
   }
 };
 
@@ -740,7 +778,7 @@ onMounted(async () => {
               <!-- 卡片视图 -->
               <div v-else>
                 <v-row v-if="filteredPlugins.length === 0" class="text-center">
-                  <v-col cols="12" class="pa-8">
+                  <v-col cols="12" class="pa-2">
                     <v-icon size="64" color="info" class="mb-4">mdi-puzzle-outline</v-icon>
                     <div class="text-h5 mb-2">{{ tm('empty.noPlugins') }}</div>
                     <div class="text-body-1 mb-4">{{ tm('empty.noPluginsDesc') }}</div>
@@ -748,10 +786,10 @@ onMounted(async () => {
                 </v-row>
 
                 <v-row>
-                  <v-col cols="12" md="6" lg="6" v-for="extension in filteredPlugins" :key="extension.name"
-                    class="pb-4">
+  <v-col cols="12" md="6" lg="4" v-for="extension in filteredPlugins" :key="extension.name"
+                    class="pb-2">
                     <ExtensionCard :extension="extension" class="rounded-lg" style="background-color: rgb(var(--v-theme-mcpCardBg));"
-                      @configure="openExtensionConfig(extension.name)" @uninstall="uninstallExtension(extension.name)"
+                      @configure="openExtensionConfig(extension.name)" @uninstall="(ext, options) => uninstallExtension(ext.name, options)"
                       @update="updateExtension(extension.name)" @reload="reloadPlugin(extension.name)"
                       @toggle-activation="extension.activated ? pluginOff(extension) : pluginOn(extension)"
                       @view-handlers="showPluginInfo(extension)" @view-readme="viewReadme(extension)">
@@ -957,6 +995,12 @@ onMounted(async () => {
 
   <ReadmeDialog v-model:show="readmeDialog.show" :plugin-name="readmeDialog.pluginName"
     :repo-url="readmeDialog.repoUrl" />
+
+  <!-- 卸载插件确认对话框（列表模式用） -->
+  <UninstallConfirmDialog
+    v-model="showUninstallDialog"
+    @confirm="handleUninstallConfirm"
+  />
 
   <!-- 危险插件确认对话框 -->
   <v-dialog v-model="dangerConfirmDialog" width="500" persistent>

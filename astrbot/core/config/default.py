@@ -1,12 +1,10 @@
-"""
-如需修改配置，请在 `data/cmd_config.json` 中修改或者在管理面板中可视化修改。
-"""
+"""如需修改配置，请在 `data/cmd_config.json` 中修改或者在管理面板中可视化修改。"""
 
 import os
 
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-VERSION = "4.5.0"
+VERSION = "4.5.1"
 DB_PATH = os.path.join(get_astrbot_data_path(), "data_v4.db")
 
 # 默认配置
@@ -771,6 +769,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "model_config": {"model": "grok-2-latest", "temperature": 0.4},
                         "custom_extra_body": {},
+                        "xai_native_search": False,
                         "modalities": ["text", "image", "tool_use"],
                     },
                     "Anthropic": {
@@ -1262,8 +1261,38 @@ CONFIG_METADATA_2 = {
                         "rerank_model": "BAAI/bge-reranker-base",
                         "timeout": 20,
                     },
+                    "Xinference Rerank": {
+                        "id": "xinference_rerank",
+                        "type": "xinference_rerank",
+                        "provider": "xinference",
+                        "provider_type": "rerank",
+                        "enable": True,
+                        "rerank_api_key": "",
+                        "rerank_api_base": "http://127.0.0.1:9997",
+                        "rerank_model": "BAAI/bge-reranker-base",
+                        "timeout": 20,
+                        "launch_model_if_not_running": False,
+                    },
+                    "Xinference STT": {
+                        "id": "xinference_stt",
+                        "type": "xinference_stt",
+                        "provider": "xinference",
+                        "provider_type": "speech_to_text",
+                        "enable": False,
+                        "api_key": "",
+                        "api_base": "http://127.0.0.1:9997",
+                        "model": "whisper-large-v3",
+                        "timeout": 180,
+                        "launch_model_if_not_running": False,
+                    },
                 },
                 "items": {
+                    "xai_native_search": {
+                        "description": "启用原生搜索功能",
+                        "type": "bool",
+                        "hint": "启用后，将通过 xAI 的 Chat Completions 原生 Live Search 进行联网检索（按需计费）。仅对 xAI 提供商生效。",
+                        "condition": {"provider": "xai"},
+                    },
                     "rerank_api_base": {
                         "description": "重排序模型 API Base URL",
                         "type": "string",
@@ -1277,6 +1306,11 @@ CONFIG_METADATA_2 = {
                     "rerank_model": {
                         "description": "重排序模型名称",
                         "type": "string",
+                    },
+                    "launch_model_if_not_running": {
+                        "description": "模型未运行时自动启动",
+                        "type": "bool",
+                        "hint": "如果模型当前未在 Xinference 服务中运行，是否尝试自动启动它。在生产环境中建议关闭。",
                     },
                     "modalities": {
                         "description": "模型能力",
@@ -2671,9 +2705,9 @@ CONFIG_METADATA_3_SYSTEM = {
                         "items": {"type": "string"},
                     },
                 },
-            }
+            },
         },
-    }
+    },
 }
 
 
