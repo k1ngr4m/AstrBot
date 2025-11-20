@@ -241,6 +241,8 @@ class ProviderManager:
                     )
                 case "zhipu_chat_completion":
                     from .sources.zhipu_source import ProviderZhipu as ProviderZhipu
+                case "groq_chat_completion":
+                    from .sources.groq_source import ProviderGroq as ProviderGroq
                 case "anthropic_chat_completion":
                     from .sources.anthropic_source import (
                         ProviderAnthropic as ProviderAnthropic,
@@ -354,6 +356,8 @@ class ProviderManager:
                 logger.error(f"无法找到 {provider_metadata.type} 的类")
                 return
 
+            provider_metadata.id = provider_config["id"]
+
             if provider_metadata.provider_type == ProviderType.SPEECH_TO_TEXT:
                 # STT 任务
                 inst = cls_type(provider_config, self.provider_settings)
@@ -394,7 +398,6 @@ class ProviderManager:
                 inst = cls_type(
                     provider_config,
                     self.provider_settings,
-                    self.selected_default_persona,
                 )
 
                 if getattr(inst, "initialize", None):
