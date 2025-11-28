@@ -11,7 +11,14 @@
                 style="width: 100%; resize: none; outline: none; border: 1px solid var(--v-theme-border); border-radius: 12px; padding: 8px 16px; min-height: 40px; font-family: inherit; font-size: 16px; background-color: var(--v-theme-surface);"></textarea>
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 0px 12px;">
                 <div style="display: flex; justify-content: flex-start; margin-top: 4px; align-items: center; gap: 8px;">
-                    <ProviderModelSelector ref="providerModelSelectorRef" />
+                    <ConfigSelector
+                        :session-id="sessionId || null"
+                        :platform-id="sessionPlatformId"
+                        :is-group="sessionIsGroup"
+                        :initial-config-id="props.configId"
+                        @config-changed="handleConfigChange"
+                    />
+                    <ProviderModelSelector v-if="showProviderSelector" ref="providerModelSelectorRef" />
                     
                     <v-tooltip :text="enableStreaming ? tm('streaming.enabled') : tm('streaming.disabled')" location="top">
                         <template v-slot:activator="{ props }">
@@ -58,9 +65,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useModuleI18n } from '@/i18n/composables';
 import ProviderModelSelector from './ProviderModelSelector.vue';
+import ConfigSelector from './ConfigSelector.vue';
+import type { Session } from '@/composables/useSessions';
 
 interface Props {
     prompt: string;
@@ -69,9 +78,16 @@ interface Props {
     disabled: boolean;
     enableStreaming: boolean;
     isRecording: boolean;
+    sessionId?: string | null;
+    currentSession?: Session | null;
+    configId?: string | null;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    sessionId: null,
+    currentSession: null,
+    configId: null
+});
 
 const emit = defineEmits<{
     'update:prompt': [value: string];
@@ -90,11 +106,15 @@ const { tm } = useModuleI18n('features/chat');
 const inputField = ref<HTMLTextAreaElement | null>(null);
 const imageInputRef = ref<HTMLInputElement | null>(null);
 const providerModelSelectorRef = ref<InstanceType<typeof ProviderModelSelector> | null>(null);
+const showProviderSelector = ref(true);
 
 const localPrompt = computed({
     get: () => props.prompt,
     set: (value) => emit('update:prompt', value)
 });
+
+const sessionPlatformId = computed(() => props.currentSession?.platform_id || 'webchat');
+const sessionIsGroup = computed(() => Boolean(props.currentSession?.is_group));
 
 const canSend = computed(() => {
     return (props.prompt && props.prompt.trim()) || props.stagedImagesUrl.length > 0 || props.stagedAudioUrl;
@@ -168,7 +188,16 @@ function handleRecordClick() {
     }
 }
 
+function handleConfigChange(payload: { configId: string; agentRunnerType: string }) {
+    const runnerType = (payload.agentRunnerType || '').toLowerCase();
+    const isInternal = runnerType === 'internal' || runnerType === 'local';
+    showProviderSelector.value = isInternal;
+}
+
 function getCurrentSelection() {
+    if (!showProviderSelector.value) {
+        return null;
+    }
     return providerModelSelectorRef.value?.getCurrentSelection();
 }
 
