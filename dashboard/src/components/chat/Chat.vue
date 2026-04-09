@@ -3,100 +3,183 @@
         <v-card-text class="chat-page-container">
             <!-- 遮罩层 (手机端) -->
             <div class="mobile-overlay" v-if="isMobile && mobileMenuOpen" @click="closeMobileSidebar"></div>
-            
+
             <div class="chat-layout">
                 <ConversationSidebar
                     :sessions="sessions"
                     :selectedSessions="selectedSessions"
                     :currSessionId="currSessionId"
+                    :selectedProjectId="selectedProjectId"
+                    :transportMode="transportMode"
+                    :sendShortcut="sendShortcut"
                     :isDark="isDark"
                     :chatboxMode="chatboxMode"
                     :isMobile="isMobile"
                     :mobileMenuOpen="mobileMenuOpen"
+                    :projects="projects"
                     @newChat="handleNewChat"
                     @selectConversation="handleSelectConversation"
                     @editTitle="showEditTitleDialog"
                     @deleteConversation="handleDeleteConversation"
+                    @batchDeleteConversations="handleBatchDeleteConversations"
                     @closeMobileSidebar="closeMobileSidebar"
                     @toggleTheme="toggleTheme"
                     @toggleFullscreen="toggleFullscreen"
+                    @selectProject="handleSelectProject"
+                    @createProject="showCreateProjectDialog"
+                    @editProject="showEditProjectDialog"
+                    @deleteProject="handleDeleteProject"
+                    @updateTransportMode="setTransportMode"
+                    @updateSendShortcut="setSendShortcut"
                 />
 
                 <!-- 右侧聊天内容区域 -->
                 <div class="chat-content-panel">
+                    <!-- Live Mode -->
+                    <LiveMode v-if="liveModeOpen" @close="closeLiveMode" />
 
-                    <div class="conversation-header fade-in" v-if="isMobile">
-                        <!-- 手机端菜单按钮 -->
-                        <v-btn icon class="mobile-menu-btn" @click="toggleMobileSidebar" variant="text">
-                            <v-icon>mdi-menu</v-icon>
-                        </v-btn>
-                    </div>
+                    <!-- 正常聊天界面 -->
+                    <template v-else>
 
-                    <div class="message-list-wrapper" v-if="messages && messages.length > 0">
-                        <MessageList :messages="messages" :isDark="isDark"
-                            :isStreaming="isStreaming || isConvRunning" 
-                            :isLoadingMessages="isLoadingMessages"
-                            @openImagePreview="openImagePreview"
-                            @replyMessage="handleReplyMessage"
-                            ref="messageList" />
-                        <div class="message-list-fade" :class="{ 'fade-dark': isDark }"></div>
-                    </div>
-                    <div class="welcome-container fade-in" v-else>
-                        <div v-if="isLoadingMessages" class="loading-overlay-welcome">
-                            <v-progress-circular
-                                indeterminate
-                                size="48"
-                                width="4"
-                                color="primary"
-                            ></v-progress-circular>
+                        <div v-if="currentSessionProject && messages && messages.length > 0" class="breadcrumb-container">
+                            <div class="breadcrumb-content">
+                                <span class="breadcrumb-emoji">{{ currentSessionProject.emoji || '📁' }}</span>
+                                <span class="breadcrumb-project" @click="handleSelectProject(currentSessionProject.project_id)">{{ currentSessionProject.title }}</span>
+                                <v-icon size="small" class="breadcrumb-separator">mdi-chevron-right</v-icon>
+                                <span class="breadcrumb-session">{{ getCurrentSession?.display_name || tm('conversation.newConversation') }}</span>
+                            </div>
                         </div>
-                        <div v-else class="welcome-title">
-                            <span>Hello, I'm</span>
-                            <span class="bot-name">AstrBot ⭐</span>
-                        </div>
-                    </div>
 
-                    <!-- 输入区域 -->
-                    <ChatInput
-                        v-model:prompt="prompt"
-                        :stagedImagesUrl="stagedImagesUrl"
-                        :stagedAudioUrl="stagedAudioUrl"
-                        :stagedFiles="stagedNonImageFiles"
-                        :disabled="isStreaming"
-                        :enableStreaming="enableStreaming"
-                        :isRecording="isRecording"
-                        :session-id="currSessionId || null"
-                        :current-session="getCurrentSession"
-                        :replyTo="replyTo"
-                        @send="handleSendMessage"
-                        @toggleStreaming="toggleStreaming"
-                        @removeImage="removeImage"
-                        @removeAudio="removeAudio"
-                        @removeFile="removeFile"
-                        @startRecording="handleStartRecording"
-                        @stopRecording="handleStopRecording"
-                        @pasteImage="handlePaste"
-                        @fileSelect="handleFileSelect"
-                        @clearReply="clearReply"
-                        ref="chatInputRef"
-                    />
+                        <div class="message-list-wrapper" v-if="currSessionId && !selectedProjectId">
+                            <MessageList :messages="messages" :isDark="isDark"
+                                :isStreaming="isStreaming || isConvRunning" 
+                                :isLoadingMessages="isLoadingMessages"
+                                @openImagePreview="openImagePreview"
+                                @replyMessage="handleReplyMessage"
+                                @replyWithText="handleReplyWithText"
+                                @openRefs="handleOpenRefs"
+                                ref="messageList" />
+                            <div class="message-list-fade" :class="{ 'fade-dark': isDark }"></div>
+                        </div>
+                        <ProjectView 
+                            v-else-if="selectedProjectId"
+                            :project="currentProject"
+                            :sessions="projectSessions"
+                            @selectSession="(sessionId) => handleSelectConversation([sessionId])"
+                            @editSessionTitle="showEditTitleDialog"
+                            @deleteSession="handleDeleteConversation"
+                        >
+                            <ChatInput
+                                v-model:prompt="prompt"
+                                :stagedImagesUrl="stagedImagesUrl"
+                                :stagedAudioUrl="stagedAudioUrl"
+                                :stagedFiles="stagedNonImageFiles"
+                                :disabled="false"
+                                :is-running="isStreaming || isConvRunning"
+                                :enableStreaming="enableStreaming"
+                                :isRecording="isRecording"
+                                :session-id="currSessionId || null"
+                                :current-session="getCurrentSession"
+                                :replyTo="replyTo"
+                                :send-shortcut="sendShortcut"
+                                @send="handleSendMessage"
+                                @stop="handleStopMessage"
+                                @toggleStreaming="toggleStreaming"
+                                @removeImage="removeImage"
+                                @removeAudio="removeAudio"
+                                @removeFile="removeFile"
+                                @startRecording="handleStartRecording"
+                                @stopRecording="handleStopRecording"
+                            @pasteImage="handlePaste"
+                            @fileSelect="handleFileSelect"
+                            @clearReply="clearReply"
+                            @openLiveMode="openLiveMode"
+                            ref="chatInputRef"
+                        />
+                        </ProjectView>
+                        <WelcomeView 
+                            v-else
+                            :isLoading="isLoadingMessages"
+                        >
+                            <ChatInput
+                                v-model:prompt="prompt"
+                                :stagedImagesUrl="stagedImagesUrl"
+                                :stagedAudioUrl="stagedAudioUrl"
+                                :stagedFiles="stagedNonImageFiles"
+                                :disabled="false"
+                                :is-running="isStreaming || isConvRunning"
+                                :enableStreaming="enableStreaming"
+                                :isRecording="isRecording"
+                                :session-id="currSessionId || null"
+                                :current-session="getCurrentSession"
+                                :replyTo="replyTo"
+                                :send-shortcut="sendShortcut"
+                                @send="handleSendMessage"
+                                @stop="handleStopMessage"
+                                @toggleStreaming="toggleStreaming"
+                                @removeImage="removeImage"
+                                @removeAudio="removeAudio"
+                                @removeFile="removeFile"
+                                @startRecording="handleStartRecording"
+                                @stopRecording="handleStopRecording"
+                                @pasteImage="handlePaste"
+                                @fileSelect="handleFileSelect"
+                                @clearReply="clearReply"
+                                @openLiveMode="openLiveMode"
+                                ref="chatInputRef"
+                            />
+                        </WelcomeView>
+
+                        <!-- 输入区域 -->
+                        <ChatInput
+                            v-if="currSessionId && !selectedProjectId"
+                            v-model:prompt="prompt"
+                            :stagedImagesUrl="stagedImagesUrl"
+                            :stagedAudioUrl="stagedAudioUrl"
+                            :stagedFiles="stagedNonImageFiles"
+                            :disabled="false"
+                            :is-running="isStreaming || isConvRunning"
+                            :enableStreaming="enableStreaming"
+                            :isRecording="isRecording"
+                            :session-id="currSessionId || null"
+                            :current-session="getCurrentSession"
+                            :replyTo="replyTo"
+                            :send-shortcut="sendShortcut"
+                            @send="handleSendMessage"
+                            @stop="handleStopMessage"
+                            @toggleStreaming="toggleStreaming"
+                            @removeImage="removeImage"
+                            @removeAudio="removeAudio"
+                            @removeFile="removeFile"
+                            @startRecording="handleStartRecording"
+                            @stopRecording="handleStopRecording"
+                            @pasteImage="handlePaste"
+                            @fileSelect="handleFileSelect"
+                            @clearReply="clearReply"
+                            @openLiveMode="openLiveMode"
+                            ref="chatInputRef"
+                        />
+                    </template>
                 </div>
 
+                <!-- Refs Sidebar -->
+                <RefsSidebar v-model="refsSidebarOpen" :refs="refsSidebarRefs" />
             </div>
         </v-card-text>
     </v-card>
+    
     <!-- 编辑对话标题对话框 -->
     <v-dialog v-model="editTitleDialog" max-width="400">
         <v-card>
             <v-card-title class="dialog-title">{{ tm('actions.editTitle') }}</v-card-title>
             <v-card-text>
                 <v-text-field v-model="editingTitle" :label="tm('conversation.newConversation')" variant="outlined"
-                    hide-details class="mt-2" @keyup.enter="saveTitle" autofocus />
+                    hide-details class="mt-2" @keyup.enter="handleSaveTitle" autofocus />
             </v-card-text>
             <v-card-actions>
                 <v-spacer></v-spacer>
                 <v-btn variant="text" @click="editTitleDialog = false" color="grey-darken-1">{{ t('core.common.cancel') }}</v-btn>
-                <v-btn variant="text" @click="saveTitle" color="primary">{{ t('core.common.save') }}</v-btn>
+                <v-btn variant="text" @click="handleSaveTitle" color="primary">{{ t('core.common.save') }}</v-btn>
             </v-card-actions>
         </v-card>
     </v-dialog>
@@ -113,6 +196,13 @@
             </v-card-text>
         </v-card>
     </v-dialog>
+
+    <!-- 创建/编辑项目对话框 -->
+    <ProjectDialog
+        v-model="projectDialog"
+        :project="editingProject"
+        @save="handleSaveProject"
+    />
 </template>
 
 <script setup lang="ts">
@@ -121,18 +211,28 @@ import { useRouter, useRoute } from 'vue-router';
 import { useCustomizerStore } from '@/stores/customizer';
 import { useI18n, useModuleI18n } from '@/i18n/composables';
 import { useTheme } from 'vuetify';
-import LanguageSwitcher from '@/components/shared/LanguageSwitcher.vue';
 import MessageList from '@/components/chat/MessageList.vue';
 import ConversationSidebar from '@/components/chat/ConversationSidebar.vue';
 import ChatInput from '@/components/chat/ChatInput.vue';
+import ProjectDialog from '@/components/chat/ProjectDialog.vue';
+import ProjectView from '@/components/chat/ProjectView.vue';
+import WelcomeView from '@/components/chat/WelcomeView.vue';
+import RefsSidebar from '@/components/chat/message_list_comps/RefsSidebar.vue';
+import LiveMode from '@/components/chat/LiveMode.vue';
+import type { ProjectFormData } from '@/components/chat/ProjectDialog.vue';
 import { useSessions } from '@/composables/useSessions';
 import { useMessages } from '@/composables/useMessages';
 import { useMediaHandling } from '@/composables/useMediaHandling';
+import { useProjects } from '@/composables/useProjects';
+import type { Project } from '@/components/chat/ProjectList.vue';
 import { useRecording } from '@/composables/useRecording';
+import { useToast } from '@/utils/toast';
 
 interface Props {
     chatboxMode?: boolean;
 }
+type SendShortcut = 'enter' | 'shift_enter';
+const SEND_SHORTCUT_STORAGE_KEY = 'chat_send_shortcut';
 
 const props = withDefaults(defineProps<Props>(), {
     chatboxMode: false
@@ -142,7 +242,9 @@ const router = useRouter();
 const route = useRoute();
 const { t } = useI18n();
 const { tm } = useModuleI18n('features/chat');
+const { warning: toastWarning } = useToast();
 const theme = useTheme();
+const customizer = useCustomizerStore();
 
 // UI 状态
 const isMobile = ref(false);
@@ -150,6 +252,7 @@ const mobileMenuOpen = ref(false);
 const imagePreviewDialog = ref(false);
 const previewImageUrl = ref('');
 const isLoadingMessages = ref(false);
+const liveModeOpen = ref(false);
 
 // 使用 composables
 const {
@@ -164,6 +267,7 @@ const {
     getSessions,
     newSession,
     deleteSession: deleteSessionFn,
+    batchDeleteSessions,
     showEditTitleDialog,
     saveTitle,
     updateSessionTitle,
@@ -186,16 +290,32 @@ const {
     cleanupMediaCache
 } = useMediaHandling();
 
-const { isRecording, startRecording: startRec, stopRecording: stopRec } = useRecording();
+const { isRecording: isRecording, startRecording: startRec, stopRecording: stopRec } = useRecording();
+
+const {
+    projects,
+    selectedProjectId,
+    getProjects,
+    createProject,
+    updateProject,
+    deleteProject,
+    addSessionToProject,
+    getProjectSessions
+} = useProjects();
 
 const {
     messages,
     isStreaming,
     isConvRunning,
     enableStreaming,
+    transportMode,
+    currentSessionProject,
     getSessionMessages: getSessionMsg,
     sendMessage: sendMsg,
-    toggleStreaming
+    stopMessage: stopMsg,
+    toggleStreaming,
+    setTransportMode,
+    cleanupTransport
 } = useMessages(currSessionId, getMediaFile, updateSessionTitle, getSessions);
 
 // 组件引用
@@ -205,33 +325,62 @@ const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
 // 输入状态
 const prompt = ref('');
 
+// 项目状态
+const projectDialog = ref(false);
+const editingProject = ref<Project | null>(null);
+const projectSessions = ref<any[]>([]);
+const currentProject = computed(() =>
+    projects.value.find(p => p.project_id === selectedProjectId.value)
+);
+
 // 引用消息状态
 interface ReplyInfo {
     messageId: number;  // PlatformSessionHistoryMessage 的 id
-    messageContent: string;  // 用于显示的消息内容
+    selectedText?: string;  // 选中的文本内容（可选）
 }
 const replyTo = ref<ReplyInfo | null>(null);
 
 const isDark = computed(() => useCustomizerStore().uiTheme === 'PurpleThemeDark');
+const sendShortcut = ref<SendShortcut>('shift_enter');
+
+function setSendShortcut(mode: SendShortcut) {
+    sendShortcut.value = mode;
+    localStorage.setItem(SEND_SHORTCUT_STORAGE_KEY, mode);
+}
+
+function focusChatInput() {
+    nextTick(() => {
+        chatInputRef.value?.focusInput?.();
+    });
+}
 
 // 检测是否为手机端
 function checkMobile() {
     isMobile.value = window.innerWidth <= 768;
     if (!isMobile.value) {
         mobileMenuOpen.value = false;
+        customizer.SET_CHAT_SIDEBAR(false);
     }
 }
 
 function toggleMobileSidebar() {
     mobileMenuOpen.value = !mobileMenuOpen.value;
+    customizer.SET_CHAT_SIDEBAR(mobileMenuOpen.value);
 }
 
 function closeMobileSidebar() {
     mobileMenuOpen.value = false;
+    customizer.SET_CHAT_SIDEBAR(false);
 }
 
+// 同步 nav header 中的 sidebar toggle
+watch(() => customizer.chatSidebarOpen, (val) => {
+    if (isMobile.value) {
+        mobileMenuOpen.value = val;
+    }
+});
+
 function toggleTheme() {
-    const customizer = useCustomizerStore();
     const newTheme = customizer.uiTheme === 'PurpleTheme' ? 'PurpleThemeDark' : 'PurpleTheme';
     customizer.SET_UI_THEME(newTheme);
     theme.global.name.value = newTheme;
@@ -250,6 +399,16 @@ function openImagePreview(imageUrl: string) {
     imagePreviewDialog.value = true;
 }
 
+async function handleSaveTitle() {
+    await saveTitle();
+
+    // 如果在项目视图中，刷新项目会话列表
+    if (selectedProjectId.value) {
+        const sessions = await getProjectSessions(selectedProjectId.value);
+        projectSessions.value = sessions;
+    }
+}
+
 function handleReplyMessage(msg: any, index: number) {
     // 从消息中获取 id (PlatformSessionHistoryMessage 的 id)
     const messageId = msg.id;
@@ -257,7 +416,7 @@ function handleReplyMessage(msg: any, index: number) {
         console.warn('Message does not have an id');
         return;
     }
-    
+
     // 获取消息内容用于显示
     let messageContent = '';
     if (typeof msg.content.message === 'string') {
@@ -269,15 +428,15 @@ function handleReplyMessage(msg: any, index: number) {
             .map((part: any) => part.text);
         messageContent = textParts.join('');
     }
-    
+
     // 截断过长的内容
     if (messageContent.length > 100) {
         messageContent = messageContent.substring(0, 100) + '...';
     }
-    
+
     replyTo.value = {
         messageId,
-        messageContent: messageContent || '[媒体内容]'
+        selectedText: messageContent || '[媒体内容]'
     };
 }
 
@@ -285,8 +444,42 @@ function clearReply() {
     replyTo.value = null;
 }
 
+function handleReplyWithText(replyData: any) {
+    // 处理选中文本的引用
+    const { messageId, selectedText, messageIndex } = replyData;
+
+    if (!messageId) {
+        console.warn('Message does not have an id');
+        return;
+    }
+
+    replyTo.value = {
+        messageId,
+        selectedText: selectedText  // 保存原始的选中文本
+    };
+}
+
+// Refs Sidebar 状态
+const refsSidebarOpen = ref(false);
+const refsSidebarRefs = ref<any>(null);
+
+function handleOpenRefs(refs: any) {
+    // 如果sidebar已打开且点击的是同一个refs，则关闭
+    if (refsSidebarOpen.value && refsSidebarRefs.value === refs) {
+        refsSidebarOpen.value = false;
+    } else {
+        // 否则打开sidebar并更新refs
+        refsSidebarRefs.value = refs;
+        refsSidebarOpen.value = true;
+    }
+}
+
 async function handleSelectConversation(sessionIds: string[]) {
     if (!sessionIds[0]) return;
+
+    // 退出项目视图
+    selectedProjectId.value = null;
+    projectSessions.value = [];
 
     // 立即更新选中状态，避免需要点击两次
     currSessionId.value = sessionIds[0];
@@ -305,30 +498,115 @@ async function handleSelectConversation(sessionIds: string[]) {
 
     // 清除引用状态
     clearReply();
-    
+
     // 开始加载消息
     isLoadingMessages.value = true;
-    
+
     try {
         await getSessionMsg(sessionIds[0]);
     } finally {
         isLoadingMessages.value = false;
     }
-    
+
     nextTick(() => {
         messageList.value?.scrollToBottom();
     });
+    focusChatInput();
 }
 
 function handleNewChat() {
     newChat(closeMobileSidebar);
     messages.value = [];
     clearReply();
+    // 退出项目视图
+    selectedProjectId.value = null;
+    projectSessions.value = [];
+    focusChatInput();
 }
 
 async function handleDeleteConversation(sessionId: string) {
     await deleteSessionFn(sessionId);
     messages.value = [];
+
+    // 如果在项目视图中，刷新项目会话列表
+    if (selectedProjectId.value) {
+        const sessions = await getProjectSessions(selectedProjectId.value);
+        projectSessions.value = sessions;
+    }
+}
+
+async function handleBatchDeleteConversations(sessionIds: string[]) {
+    try {
+        const result = await batchDeleteSessions(sessionIds);
+
+        // 仅在当前会话成功删除时清除信息
+        if (result.currentSessionDeleted) {
+            messages.value = [];
+        }
+
+        // 失败处理
+        if (result.failed_count > 0) {
+            toastWarning(
+                tm('batch.partialFailure', { failed: result.failed_count, total: sessionIds.length })
+            );
+        }
+
+        // 如果在项目视图中，刷新项目会话列表
+        if (selectedProjectId.value) {
+            const sessions = await getProjectSessions(selectedProjectId.value);
+            projectSessions.value = sessions;
+        }
+    } catch (err) {
+        console.error('Batch delete sessions failed:', err);
+        toastWarning(tm('batch.requestFailed'));
+    }
+}
+
+async function handleSelectProject(projectId: string) {
+    selectedProjectId.value = projectId;
+    const sessions = await getProjectSessions(projectId);
+    projectSessions.value = sessions;
+    messages.value = [];
+
+    // 清空当前会话ID，准备在项目中创建新对话
+    currSessionId.value = '';
+    selectedSessions.value = [];
+
+    // 手机端关闭侧边栏
+    if (isMobile.value) {
+        closeMobileSidebar();
+    }
+}
+
+function showCreateProjectDialog() {
+    editingProject.value = null;
+    projectDialog.value = true;
+}
+
+function showEditProjectDialog(project: Project) {
+    editingProject.value = project;
+    projectDialog.value = true;
+}
+
+async function handleSaveProject(formData: ProjectFormData, projectId?: string) {
+    if (projectId) {
+        await updateProject(
+            projectId,
+            formData.title,
+            formData.emoji,
+            formData.description
+        );
+    } else {
+        await createProject(
+            formData.title,
+            formData.emoji,
+            formData.description
+        );
+    }
+}
+
+async function handleDeleteProject(projectId: string) {
+    await deleteProject(projectId);
 }
 
 async function handleStartRecording() {
@@ -342,7 +620,10 @@ async function handleStopRecording() {
 
 async function handleFileSelect(files: FileList) {
     const imageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    for (const file of files) {
+    // 将 FileList 转换为数组，避免异步处理时 FileList 被清空
+    const fileArray = Array.from(files);
+    for (let i = 0; i < fileArray.length; i++) {
+        const file = fileArray[i];
         if (imageTypes.includes(file.type)) {
             await processAndUploadImage(file);
         } else {
@@ -351,14 +632,31 @@ async function handleFileSelect(files: FileList) {
     }
 }
 
+function openLiveMode() {
+    liveModeOpen.value = true;
+}
+
+function closeLiveMode() {
+    liveModeOpen.value = false;
+}
+
 async function handleSendMessage() {
     // 只有引用不能发送，必须有输入内容
     if (!prompt.value.trim() && stagedFiles.value.length === 0 && !stagedAudioUrl.value) {
         return;
     }
 
-    if (!currSessionId.value) {
+    const isCreatingNewSession = !currSessionId.value;
+    const currentProjectId = selectedProjectId.value; // 保存当前项目ID
+
+    if (isCreatingNewSession) {
         await newSession();
+
+        // 如果在项目视图中创建新会话，立即退出项目视图
+        if (currentProjectId) {
+            selectedProjectId.value = null;
+            projectSessions.value = [];
+        }
     }
 
     const promptToSend = prompt.value.trim();
@@ -381,6 +679,11 @@ async function handleSendMessage() {
     const selectedProviderId = selection?.providerId || '';
     const selectedModelName = selection?.modelName || '';
 
+    // 点击发送后立即将消息区滚到底部，确保用户看到最新消息
+    nextTick(() => {
+        messageList.value?.scrollToBottom();
+    });
+
     await sendMsg(
         promptToSend,
         filesToSend,
@@ -389,6 +692,24 @@ async function handleSendMessage() {
         selectedModelName,
         replyToSend
     );
+
+    // 发送流程结束后再兜底一次，处理异步渲染场景
+    nextTick(() => {
+        messageList.value?.scrollToBottom();
+    });
+
+    // 如果在项目中创建了新会话，将其添加到项目
+    if (isCreatingNewSession && currentProjectId && currSessionId.value) {
+        await addSessionToProject(currSessionId.value, currentProjectId);
+        // 刷新会话列表，移除已添加到项目的会话
+        await getSessions();
+        // 重新获取会话消息以更新项目信息（用于面包屑显示）
+        await getSessionMsg(currSessionId.value);
+    }
+}
+
+async function handleStopMessage() {
+    await stopMsg();
 }
 
 // 路由变化监听
@@ -435,14 +756,20 @@ watch(sessions, (newSessions) => {
 });
 
 onMounted(() => {
+    const storedShortcut = localStorage.getItem(SEND_SHORTCUT_STORAGE_KEY);
+    if (storedShortcut === 'enter' || storedShortcut === 'shift_enter') {
+        sendShortcut.value = storedShortcut;
+    }
     checkMobile();
     window.addEventListener('resize', checkMobile);
     getSessions();
+    getProjects();
 });
 
 onBeforeUnmount(() => {
     window.removeEventListener('resize', checkMobile);
     cleanupMediaCache();
+    cleanupTransport();
 });
 </script>
 
@@ -464,6 +791,7 @@ onBeforeUnmount(() => {
     height: 100%;
     max-height: 100%;
     overflow: hidden;
+    overscroll-behavior: none;
 }
 
 .chat-page-container {
@@ -552,30 +880,39 @@ onBeforeUnmount(() => {
     margin-left: 8px;
 }
 
-.welcome-container {
-    height: 100%;
+.breadcrumb-container {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--v-theme-border);
+    flex-shrink: 0;
+}
+
+.breadcrumb-content {
     display: flex;
-    justify-content: center;
     align-items: center;
-    flex-direction: column;
-    position: relative;
+    gap: 8px;
+    font-size: 14px;
 }
 
-.welcome-title {
-    font-size: 28px;
-    margin-bottom: 16px;
+.breadcrumb-emoji {
+    font-size: 16px;
 }
 
-.loading-overlay-welcome {
-    display: flex;
-    justify-content: center;
-    align-items: center;
+.breadcrumb-project {
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s;
 }
 
-.bot-name {
-    font-weight: 700;
-    margin-left: 8px;
-    color: var(--v-theme-secondary);
+.breadcrumb-project:hover {
+    opacity: 0.7;
+}
+
+.breadcrumb-separator {
+    opacity: 0.5;
+}
+
+.breadcrumb-session {
+    opacity: 0.7;
 }
 
 .fade-in {
@@ -593,7 +930,7 @@ onBeforeUnmount(() => {
     .chat-content-panel {
         width: 100%;
     }
-    
+
     .chat-page-container {
         padding: 0 !important;
     }

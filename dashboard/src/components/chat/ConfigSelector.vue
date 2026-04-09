@@ -1,21 +1,24 @@
 <template>
     <div>
-        <v-tooltip text="选择用于当前会话的配置文件" location="top">
-            <template #activator="{ props: tooltipProps }">
-                <v-chip
-                    v-bind="tooltipProps"
-                    class="text-none config-chip"
-                    variant="tonal"
-                    size="x-small"
-                    rounded="lg"
-                    @click="openDialog"
-                    :disabled="loadingConfigs || saving"
-                >
-                    <v-icon start size="14">mdi-cog</v-icon>
-                    {{ selectedConfigLabel }}
-                </v-chip>
+        <v-list-item
+            class="styled-menu-item"
+            rounded="md"
+            @click="openDialog"
+            :disabled="loadingConfigs || saving"
+        >
+            <template v-slot:prepend>
+                <v-icon icon="mdi-cog-outline" size="small"></v-icon>
             </template>
-        </v-tooltip>
+            <v-list-item-title>
+                {{ tm('config.title') }}
+            </v-list-item-title>
+            <v-list-item-subtitle class="text-caption">
+                {{ selectedConfigLabel }}
+            </v-list-item-subtitle>
+            <template v-slot:append>
+                <v-icon icon="mdi-chevron-right" size="small" class="text-medium-emphasis"></v-icon>
+            </template>
+        </v-list-item>
 
         <v-dialog v-model="dialog" max-width="480">
             <v-card>
@@ -73,6 +76,12 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import axios from 'axios';
 import { useToast } from '@/utils/toast';
+import { useModuleI18n } from '@/i18n/composables';
+import {
+    getStoredDashboardUsername,
+    getStoredSelectedChatConfigId,
+    setStoredSelectedChatConfigId
+} from '@/utils/chatConfigBinding';
 
 interface ConfigInfo {
     id: string;
@@ -83,8 +92,6 @@ interface ConfigChangedPayload {
     configId: string;
     agentRunnerType: string;
 }
-
-const STORAGE_KEY = 'chat.selectedConfigId';
 
 const props = withDefaults(defineProps<{
     sessionId?: string | null;
@@ -99,6 +106,8 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{ 'config-changed': [ConfigChangedPayload] }>();
+
+const { tm } = useModuleI18n('features/chat');
 
 const configOptions = ref<ConfigInfo[]>([]);
 const loadingConfigs = ref(false);
@@ -122,7 +131,7 @@ const hasActiveSession = computed(() => !!normalizedSessionId.value);
 
 const messageType = computed(() => (props.isGroup ? 'GroupMessage' : 'FriendMessage'));
 
-const username = computed(() => localStorage.getItem('user') || 'guest');
+const username = computed(() => getStoredDashboardUsername());
 
 const sessionKey = computed(() => {
     if (!normalizedSessionId.value) {
@@ -259,10 +268,10 @@ async function confirmSelection() {
     }
     const previousId = selectedConfigId.value;
     await setSelection(tempSelectedConfig.value);
-    localStorage.setItem(STORAGE_KEY, tempSelectedConfig.value);
+    setStoredSelectedChatConfigId(tempSelectedConfig.value);
     const applied = await applySelectionToBackend(tempSelectedConfig.value);
     if (!applied) {
-        localStorage.setItem(STORAGE_KEY, previousId);
+        setStoredSelectedChatConfigId(previousId);
         await setSelection(previousId);
     }
     dialog.value = false;
@@ -281,7 +290,7 @@ async function syncSelectionForSession() {
     await fetchRoutingEntries();
     const resolved = resolveConfigId(targetUmo.value);
     await setSelection(resolved);
-    localStorage.setItem(STORAGE_KEY, resolved);
+    setStoredSelectedChatConfigId(resolved);
 }
 
 watch(
@@ -293,7 +302,7 @@ watch(
 
 onMounted(async () => {
     await fetchConfigList();
-    const stored = props.initialConfigId || localStorage.getItem(STORAGE_KEY) || 'default';
+    const stored = props.initialConfigId || getStoredSelectedChatConfigId();
     selectedConfigId.value = stored;
     await setSelection(stored);
     await syncSelectionForSession();
@@ -301,11 +310,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.config-chip {
-    cursor: pointer;
-    justify-content: flex-start;
-}
-
 .config-list {
     max-height: 360px;
     overflow-y: auto;

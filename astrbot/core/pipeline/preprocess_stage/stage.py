@@ -27,7 +27,7 @@ class PreProcessStage(Stage):
     ) -> None | AsyncGenerator[None, None]:
         """在处理事件之前的预处理"""
         # 平台特异配置：platform_specific.<platform>.pre_ack_emoji
-        supported = {"telegram", "lark"}
+        supported = {"telegram", "lark", "discord"}
         platform = event.get_platform_name()
         cfg = (
             self.config.get("platform_specific", {})
@@ -52,7 +52,7 @@ class PreProcessStage(Stage):
             message_chain = event.get_messages()
 
             for idx, component in enumerate(message_chain):
-                if isinstance(component, (Record, Image)) and component.url:
+                if isinstance(component, Record | Image) and component.url:
                     for mapping in mappings:
                         from_, to_ = mapping.split(":")
                         from_ = from_.removesuffix("/")
@@ -76,8 +76,8 @@ class PreProcessStage(Stage):
                 return
             message_chain = event.get_messages()
             for idx, component in enumerate(message_chain):
-                if isinstance(component, Record) and component.url:
-                    path = component.url.removeprefix("file://")
+                if isinstance(component, Record):
+                    path = await component.convert_to_file_path()
                     retry = 5
                     for i in range(retry):
                         try:

@@ -44,7 +44,7 @@ class RetrievalManager:
         sparse_retriever: SparseRetriever,
         rank_fusion: RankFusion,
         kb_db: KBSQLiteDatabase,
-    ):
+    ) -> None:
         """初始化检索管理器
 
         Args:
@@ -142,10 +142,13 @@ class RetrievalManager:
             f"Rank fusion took {time_end - time_start:.2f}s and returned {len(fused_results)} results.",
         )
 
-        # 4. 转换为 RetrievalResult (获取元数据)
+        # 4. 转换为 RetrievalResult (批量获取元数据)
+        doc_ids = {fr.doc_id for fr in fused_results}
+        metadata_map = await self.kb_db.get_documents_with_metadata_batch(doc_ids)
+
         retrieval_results = []
         for fr in fused_results:
-            metadata_dict = await self.kb_db.get_document_with_metadata(fr.doc_id)
+            metadata_dict = metadata_map.get(fr.doc_id)
             if metadata_dict:
                 retrieval_results.append(
                     RetrievalResult(
@@ -181,12 +184,15 @@ class RetrievalManager:
                 first_rerank = vec_db.rerank_provider
                 break
         if first_rerank and retrieval_results:
-            retrieval_results = await self._rerank(
-                query=query,
-                results=retrieval_results,
-                top_k=top_m_final,
-                rerank_provider=first_rerank,
-            )
+            try:
+                retrieval_results = await self._rerank(
+                    query=query,
+                    results=retrieval_results,
+                    top_k=top_m_final,
+                    rerank_provider=first_rerank,
+                )
+            except Exception as e:
+                logger.warning(f"Rerank 执行失败，已跳过重排序并使用融合结果: {e}")
 
         return retrieval_results[:top_m_final]
 
@@ -226,10 +232,10 @@ class RetrievalManager:
 
                 all_results.extend(vec_results)
             except Exception as e:
-                from astrbot.core import logger
-
-                logger.warning(f"知识库 {kb_id} 稠密检索失败: {e}")
-                continue
+                logger.error(f"知识库 {kb_id} 稠密检索失败: {e}", exc_info=True)
+                if len(kb_ids) == 1:
+                    raise RuntimeError(f"知识库 {kb_id} 稠密检索失败: {e}") from e
+                # multi-KB: skip the faulty KB and continue
 
         # 按相似度排序并返回 top_k
         all_results.sort(key=lambda x: x.similarity, reverse=True)

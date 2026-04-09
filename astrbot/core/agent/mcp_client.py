@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import sys
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from typing import Generic
@@ -43,6 +45,33 @@ def _prepare_config(config: dict) -> dict:
         config = config["mcpServers"][first_key]
     config.pop("active", None)
     return config
+
+
+def _prepare_stdio_env(config: dict) -> dict:
+    """Preserve Windows executable resolution for stdio subprocesses."""
+    if sys.platform != "win32":
+        return config
+    prepared = config.copy()
+    env = dict(prepared.get("env") or {})
+    env = _merge_environment_variables(env)
+    prepared["env"] = env
+    return prepared
+
+
+def _merge_environment_variables(env: dict) -> dict:
+    """合并环境变量，处理Windows不区分大小写的情况"""
+    merged = env.copy()
+
+    # 将用户环境变量转换为统一的大小写形式便于比较
+    user_keys_lower = {k.lower(): k for k in merged.keys()}
+
+    for sys_key, sys_value in os.environ.items():
+        sys_key_lower = sys_key.lower()
+        if sys_key_lower not in user_keys_lower:
+            # 使用系统环境变量中的原始大小写
+            merged[sys_key] = sys_value
+
+    return merged
 
 
 async def _quick_test_mcp_connection(config: dict) -> tuple[bool, str]:
@@ -108,7 +137,7 @@ async def _quick_test_mcp_connection(config: dict) -> tuple[bool, str]:
 
 
 class MCPClient:
-    def __init__(self):
+    def __init__(self) -> None:
         # Initialize session and client objects
         self.session: mcp.ClientSession | None = None
         self.exit_stack = AsyncExitStack()
@@ -126,7 +155,7 @@ class MCPClient:
         self._reconnect_lock = asyncio.Lock()  # Lock for thread-safe reconnection
         self._reconnecting: bool = False  # For logging and debugging
 
-    async def connect_to_server(self, mcp_server_config: dict, name: str):
+    async def connect_to_server(self, mcp_server_config: dict, name: str) -> None:
         """Connect to MCP server
 
         If `url` parameter exists:
@@ -144,10 +173,14 @@ class MCPClient:
 
         cfg = _prepare_config(mcp_server_config.copy())
 
-        def logging_callback(msg: str):
+        def logging_callback(
+            msg: str | mcp.types.LoggingMessageNotificationParams,
+        ) -> None:
             # Handle MCP service error logs
-            print(f"MCP Server {name} Error: {msg}")
-            self.server_errlogs.append(msg)
+            if isinstance(msg, mcp.types.LoggingMessageNotificationParams):
+                if msg.level in ("warning", "error", "critical", "alert", "emergency"):
+                    log_msg = f"[{msg.level.upper()}] {str(msg.data)}"
+                    self.server_errlogs.append(log_msg)
 
         if "url" in cfg:
             success, error_msg = await _quick_test_mcp_connection(cfg)
@@ -210,19 +243,29 @@ class MCPClient:
                 )
 
         else:
+            cfg = _prepare_stdio_env(cfg)
             server_params = mcp.StdioServerParameters(
                 **cfg,
             )
 
-            def callback(msg: str):
+            def callback(msg: str | mcp.types.LoggingMessageNotificationParams) -> None:
                 # Handle MCP service error logs
-                self.server_errlogs.append(msg)
+                if isinstance(msg, mcp.types.LoggingMessageNotificationParams):
+                    if msg.level in (
+                        "warning",
+                        "error",
+                        "critical",
+                        "alert",
+                        "emergency",
+                    ):
+                        log_msg = f"[{msg.level.upper()}] {str(msg.data)}"
+                        self.server_errlogs.append(log_msg)
 
             stdio_transport = await self.exit_stack.enter_async_context(
                 mcp.stdio_client(
                     server_params,
                     errlog=LogPipe(
-                        level=logging.ERROR,
+                        level=logging.INFO,
                         logger=logger,
                         identifier=f"MCPServer-{name}",
                         callback=callback,
@@ -343,7 +386,7 @@ class MCPClient:
 
         return await _call_with_retry()
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Clean up resources including old exit stacks from reconnections"""
         # Close current exit stack
         try:
@@ -365,7 +408,7 @@ class MCPTool(FunctionTool, Generic[TContext]):
 
     def __init__(
         self, mcp_tool: mcp.Tool, mcp_client: MCPClient, mcp_server_name: str, **kwargs
-    ):
+    ) -> None:
         super().__init__(
             name=mcp_tool.name,
             description=mcp_tool.description or "",
